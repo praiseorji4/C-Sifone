@@ -1,5 +1,5 @@
 import flask
-from flask import Flask, render_template, redirect, url_for, flash
+from flask import Flask, render_template, redirect, url_for, flash, jsonify, request
 from flask_bootstrap import Bootstrap
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
@@ -14,7 +14,7 @@ app.config['SECRET_KEY'] = os.environ.get("SECRET_KEY")
 Bootstrap(app)
 
 # CONNECT TO DB
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get("DATABASE_URL")
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get("DATABASE_URL", "sqlite:///sifone.db")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -54,48 +54,38 @@ def home_page():
     return render_template("index.html", logged_in=current_user.is_authenticated)
 
 
-@app.route("/register", methods=["GET", "POST"])
+@app.route("/register", methods=["POST"])
 def register():
     salt = "pbkdf2:sha256"
     salt_length = 8
-    form = SignUpForm()
-    if form.validate_on_submit():
-        new_user = User(
-            email=form.email.data,
-            password=generate_password_hash(form.password.data, method=salt, salt_length=salt_length),
-            name=form.name.data
-        )
-        db.session.add(new_user)
-        db.session.commit()
-        login_user(new_user)
-        return redirect(url_for("home_page"))
-    return render_template("signup.html", form=form, logged_in=current_user.is_authenticated)
+    new_user = User(
+        email=request.form.get("email"),
+        password=generate_password_hash(request.form.get("password"), method=salt, salt_length=salt_length),
+        name=request.form.get("name")
+    )
+    db.session.add(new_user)
+    db.session.commit()
+    login_user(new_user)
+    return jsonify(response={"success": "Successfully added the new cafe."}), 200
 
 
 @app.route("/signin", methods=["GET", "POST"])
 def signin():
-    form = SignInForm()
-    if form.validate_on_submit():
-        email = form.email.data
-        password = form.password.data
-        user = User.query.filter_by(email=email).first()
-        if not user:
-            flask.flash("That email is not tied to any account")
-            return redirect(url_for("signin"))
-        elif not check_password_hash(user.password, password):
-            flask.flash("Incorrect Password")
-            return redirect(url_for("signin"))
-        else:
-            login_user(user)
-            flask.flash("Logged in Successfully")
-            return redirect(url_for("home_page"))
-    return render_template("signin.html", form=form)
+    email = request.args.get("email")
+    password = request.args.get("password")
+    user = db.session.query(User).filter_by(email=email).first()
+    if user:
+        return jsonify(cafe=user.to_dict())
+    elif not user:
+        return jsonify(error={"Not Found": "Sorry a user with that email was not found in the database."}), 404
+    elif not check_password_hash(user.password, password):
+        return jsonify(error={"Not Found": "Sorry your password does not match "
+                                           "with that email was not found in the database."}), 404
 
 
 @app.route("/logout")
 def logout():
-    logout_user()
-    return redirect(url_for("home_page"))
+    pass
 
 
 
